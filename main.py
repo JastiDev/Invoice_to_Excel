@@ -335,7 +335,7 @@ def parse_invoice_text(text):
             for match in cost_matches:
                 try:
                     num = float(match)
-                    if 1 <= num <= 300:  # Reasonable cost range
+                    if 1 <= num <= 1000:  # Increased range to catch total costs
                         valid_costs.append(num)
                 except ValueError:
                     continue
@@ -347,15 +347,12 @@ def parse_invoice_text(text):
                 # For HEM products, if we find 25.20, use it as cost_per_packet
                 if code2.startswith('HEM') and 25.20 in valid_costs:
                     cost_per_packet = 25.20
-                    total_cost = 25.20
                 # For HEM products without 25.20, use default 27.72
                 elif code2.startswith('HEM'):
                     cost_per_packet = 27.72
-                    total_cost = 27.72
                 # For ML21 (Paratha), use 53.20 as cost_per_packet
                 elif code2 == 'ML21':
                     cost_per_packet = 53.20
-                    total_cost = 266.00 if received > 0 else 0.00
                 # For other products
                 else:
                     # If we have multiple costs
@@ -363,27 +360,65 @@ def parse_invoice_text(text):
                         # Use the first number as cost_per_packet if it's reasonable
                         if valid_costs[0] >= 10:  # Minimum reasonable cost
                             cost_per_packet = valid_costs[0]
-                            total_cost = valid_costs[-1]
                         else:
                             # If first number is too small, use second number as cost_per_packet
                             cost_per_packet = valid_costs[1]
-                            total_cost = valid_costs[-1]
                     else:
-                        # If only one cost found, use it for both
+                        # If only one cost found, use it
                         cost_per_packet = valid_costs[0]
-                        total_cost = valid_costs[0]
             else:
                 # If no valid costs found
                 if code2.startswith('HEM'):
                     cost_per_packet = 27.72
-                    total_cost = 27.72
                 else:
                     print(f"Could not find valid cost numbers in line: {original_line}")
                     continue
             
-            # If received quantity is 0, total cost should be 0
-            if received == 0:
-                total_cost = 0.00
+            # Find all decimal numbers in the line
+            decimal_numbers = re.findall(r'\b\d+\.\d{2}\b', original_line)
+            
+            # Convert to float and filter valid numbers
+            numbers = []
+            for num in decimal_numbers:
+                try:
+                    val = float(num)
+                    if val > 0:  # Only include positive numbers
+                        numbers.append(val)
+                except ValueError:
+                    continue
+            
+            # Calculate expected total
+            expected_total = cost_per_packet * purchased
+            
+            if numbers:
+                # Sort numbers by how close they are to the expected total
+                numbers.sort(key=lambda x: abs(x - expected_total))
+                
+                # If we have multiple numbers
+                if len(numbers) >= 2:
+                    # If the line ends with 0.00, look for the next largest number
+                    if original_line.strip().endswith('0.00'):
+                        non_zero_nums = [n for n in numbers if n > 0.01 and abs(n - cost_per_packet) > 0.01]
+                        if non_zero_nums:
+                            total_cost = max(non_zero_nums)
+                        else:
+                            total_cost = 0.00
+                    else:
+                        # If one number matches cost_per_packet and purchased is 1, use cost_per_packet
+                        if purchased == 1 and any(abs(n - cost_per_packet) < 0.01 for n in numbers):
+                            total_cost = cost_per_packet
+                        else:
+                            # Use the number closest to expected total
+                            total_cost = numbers[0]
+                else:
+                    # If we only have one number
+                    if purchased == 1 and abs(numbers[0] - cost_per_packet) < 0.01:
+                        total_cost = cost_per_packet
+                    else:
+                        total_cost = numbers[0]
+            else:
+                # If no valid numbers found, use expected total
+                total_cost = expected_total
             
             # Round costs to 2 decimal places
             if cost_per_packet is not None:
