@@ -334,11 +334,13 @@ def parse_invoice_text(text):
             # Extract the quantity in parentheses and full description
             bar = 0
             description_parts = []
+            product_parts = []
+            last_parenthesis_index = -1
             
             # Start collecting description after code2
-            for part in parts[code_index+2:]:
+            for i, part in enumerate(parts[code_index+2:]):
                 # Stop if we hit a cost number
-                if convert_to_number(part) in numbers:
+                if convert_to_number(part) in [cost_per_packet, total_cost]:
                     break
                     
                 # Check for quantity in parentheses
@@ -347,8 +349,32 @@ def parse_invoice_text(text):
                     num = convert_to_number(num_str)
                     if num is not None:
                         bar = int(num)
+                        last_parenthesis_index = i
                 
                 description_parts.append(part)
+            
+            # Clean up product name - use pattern-based approach
+            def clean_product_name(text):
+                # Split the text into parts
+                parts = text.split()
+                
+                # Find the part with parentheses
+                paren_index = -1
+                for i, part in enumerate(parts):
+                    if '(' in part and ')' in part:
+                        paren_index = i
+                        break
+                
+                if paren_index == -1:
+                    return text
+                
+                # Keep only the parts up to and including the parentheses
+                cleaned_parts = parts[:paren_index + 1]
+                result = ' '.join(cleaned_parts)
+                
+                # Remove any trailing punctuation and spaces
+                result = re.sub(r'[.,\s]+$', '', result)
+                return result
             
             # Join all parts for full description
             full_description = ' '.join(description_parts)
@@ -387,21 +413,11 @@ def parse_invoice_text(text):
                     else:
                         product = ""
                 
-                # If description contains a period, split there
-                if '.' in description:
-                    description = description.split('.')[0]
-                
-                # Clean up the product string
-                product = product.strip()
-                if not product and description:
-                    # If no product but we have description with period
-                    parts = rest.split('.')
-                    if len(parts) > 1:
-                        description = parts[0]
-                        product = '.'.join(parts[1:])
+                # Clean the product name
+                product = clean_product_name(product)
             else:
                 description = "Unknown"
-                product = full_description
+                product = clean_product_name(full_description)
             
             # Create the item dictionary
             item = {
