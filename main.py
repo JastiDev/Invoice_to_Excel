@@ -95,20 +95,28 @@ def clean_line(line):
     # Special case for common OCR errors in quantities
     line = line.replace('3)', '5')  # Fix for 3) -> 5
     
+    # Fix common OCR errors in product codes
+    # Replace S with 5 in specific product code patterns
+    line = re.sub(r'\bISP\b', 'I5P', line)  # ISP -> I5P
+    line = re.sub(r'\bSP\d+\b', lambda m: '5P' + m.group()[2:], line)  # SP123 -> 5P123
+    line = re.sub(r'\bIS\d+\b', lambda m: 'I5' + m.group()[2:], line)  # IS123 -> I5123
+    
+    # Fix $ to S in product codes
+    line = re.sub(r'\bCAS \$(\d+)\b', r'CAS S\1', line)  # CAS $15 -> CAS S15
+    
+    # Fix common OCR errors in measurements
+    line = re.sub(r'(\d{2})62\b', r'\1oz', line)  # 1262, 1362, etc. -> 12oz, 13oz, etc.
+    line = re.sub(r'l(\d)(?=[^\d]|$)', r'1\1', line)  # l2, l3, l4, etc. -> 12, 13, 14, etc.
+    line = re.sub(r'(\d+)l(\d+)', r'\1\2', line)  # Handle cases like 14.1loz -> 14.1oz
+    
     # Fix common OCR errors in unit measurements
-    # Replace 02, O2 with oz when it appears at word boundaries or end of string
-    line = re.sub(r'(\d+)02\b', r'\1oz', line)  # e.g., 1402 -> 14oz
-    line = re.sub(r'(\d+)O2\b', r'\1oz', line)  # e.g., 14O2 -> 14oz
-    line = re.sub(r'\b02\b', 'oz', line)        # standalone 02 -> oz
-    line = re.sub(r'\bO2\b', 'oz', line)        # standalone O2 -> oz
+    line = re.sub(r'(\d+)[O0]z\b', r'\1oz', line)  # 14Oz or 140z -> 14oz
+    line = re.sub(r'(\d+)Lo\b', r'\1oz', line)     # 14Lo -> 14oz
+    line = re.sub(r'(\d+)1o\b', r'\1oz', line)     # 141o -> 14oz
     
     # Fix common OCR errors in pound measurements
-    line = re.sub(r'\b1b\b', 'lb', line)        # standalone 1b -> lb
-    line = re.sub(r'\b1B\b', 'lb', line)        # standalone 1B -> lb
-    line = re.sub(r'(\d+)1b\b', r'\1lb', line)  # e.g., 21b -> 2lb
-    line = re.sub(r'(\d+)1B\b', r'\1lb', line)  # e.g., 21B -> 2lb
-    line = re.sub(r'\bIb\b', 'lb', line)        # standalone Ib -> lb
-    line = re.sub(r'\blB\b', 'lb', line)        # standalone lB -> lb
+    line = re.sub(r'\b[1Il]b\b', 'lb', line)       # 1b, lb, Ib -> lb
+    line = re.sub(r'(\d+)[1Il]b\b', r'\1lb', line) # 21b, 2lb, 2Ib -> 2lb
     
     # Remove special characters that aren't needed
     line = line.replace('*', ' ')
@@ -118,19 +126,14 @@ def clean_line(line):
     line = line.replace('>', ' ')
     line = line.replace('\\', ' ')
     line = line.replace('%', ' ')
-    line = line.replace('$', ' ')
     line = line.replace('=', ' ')
     
     # Normalize spaces
     line = ' '.join(line.split())
     
-    # Normalize units - ensure 'oz' and 'lb' are preserved correctly
-    line = line.replace('.loz', 'oz').replace('.Lb', 'lb')
-    line = line.replace('oz.', 'oz').replace('lb.', 'lb')
-    line = line.replace('0z', 'oz')  # Fix 0z -> oz
-    line = line.replace('Oz', 'oz')  # Fix Oz -> oz
-    line = line.replace('LB', 'lb')  # Fix LB -> lb
-    line = line.replace('Lb', 'lb')  # Fix Lb -> lb
+    # Final normalization of units
+    line = re.sub(r'(\d+)\s*[oO0]z\b', r'\1oz', line)  # Fix any remaining oz variations
+    line = re.sub(r'(\d+)\s*[lL][bB]\b', r'\1lb', line)  # Fix any remaining lb variations
     
     return line
 
@@ -188,6 +191,13 @@ def parse_invoice_text(text):
     
     # Define known description patterns
     KNOWN_DESCRIPTIONS = ['F S', 'Flo', 'Diges', 'Pres', 'Spi']
+    
+    # Define product code prefixes based on description
+    DESCRIPTION_CODE_PREFIX = {
+        'Spi': 'S',  # Spices should have S prefix
+        'Bre': 'BR',  # Bread items should have BR prefix
+        'F S': 'I5P'  # Frozen snacks should have I5P prefix
+    }
     
     items = []
     
@@ -277,8 +287,24 @@ def parse_invoice_text(text):
                 print(f"Could not find valid purchased quantity in line: {original_line}")
                 continue
             
+            # Get the product code (Code2)
+            code2 = parts[code_index + 1]
+            
+            # Look ahead for the description to determine if we need to add a prefix
+            description = None
+            for desc in KNOWN_DESCRIPTIONS:
+                if desc in parts[code_index + 2:]:
+                    description = desc
+                    break
+            
+            # Add prefix to code2 if needed based on description
+            if description and description in DESCRIPTION_CODE_PREFIX:
+                expected_prefix = DESCRIPTION_CODE_PREFIX[description]
+                # If code2 is just numbers and doesn't start with the expected prefix
+                if code2.replace('$', '').isdigit() or (code2.startswith('$') and code2[1:].isdigit()):
+                    code2 = expected_prefix + code2.replace('$', '')
+            
             code1 = parts[code_index]  # CAS/PK/BAG
-            code2 = parts[code_index+1]  # Product code
             
             # Special case for product code 993 -> Q93
             if code2 == '993':
