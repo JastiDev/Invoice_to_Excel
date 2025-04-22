@@ -88,8 +88,7 @@ def clean_ocr_text(text):
 
 # Function to clean and normalize a line of text
 def clean_line(line):
-    # Special case for "ES) )" -> "55"
-    line = line.replace('ES) )', '55')
+    # Do NOT convert ES) ) to 55 anymore - we'll handle this pattern in parse_invoice_text
     
     # Remove special characters that aren't needed
     line = line.replace('*', ' ')
@@ -113,9 +112,9 @@ def clean_line(line):
 
 # Function to convert OCR text to number
 def convert_to_number(text):
-    # First handle the complete pattern to avoid double conversion
-    if 'ES) )' in text or 'ES)' in text:
-        return 5
+    # Skip ES) pattern - we'll handle it separately in parse_invoice_text
+    if 'ES)' in text:
+        return None
     
     # Other special case conversions for known OCR errors
     text = text.replace('QO', '0')
@@ -190,18 +189,13 @@ def parse_invoice_text(text):
             received = None
             purchased_idx = -1
             
-            # First check for ES) ) pattern before any other processing
-            is_es_pattern = False
-            for i in range(min(3, code_index)):  # Only check first few parts
-                if 'ES)' in parts[i]:
-                    purchased = 5
-                    received = 5
-                    is_es_pattern = True
-                    break
-            
-            if not is_es_pattern:
+            # Check for ES) pattern at the start
+            if parts and ('ES)' in parts[0] or (len(parts) > 1 and 'ES)' in parts[1])):
+                purchased = 5
+                received = 5  # Set received to 5 as well for ES) pattern
+                purchased_idx = 0 if 'ES)' in parts[0] else 1
+            else:
                 # Normal quantity processing
-                # First number before CAS/PK/BAG is purchased
                 for i in range(code_index):
                     # Check for known OCR patterns first
                     if parts[i] in ONE_INDICATORS:
@@ -214,23 +208,20 @@ def parse_invoice_text(text):
                         purchased_idx = i
                         break
                 
-                # Look for received quantity (O, 0, or a number)
+                # Look for received quantity
                 if purchased_idx != -1 and purchased_idx + 1 < len(parts):
                     next_part = parts[purchased_idx + 1]
-                    if next_part in ZERO_INDICATORS:  # Zero indicators
+                    if next_part in ZERO_INDICATORS:
                         received = 0
-                    elif next_part in ONE_INDICATORS:  # One indicators
+                    elif next_part in ONE_INDICATORS:
                         received = 1
                     else:
                         received_num = convert_to_number(next_part)
-                        if received_num is not None and received_num <= 100:  # Reasonable quantity check
+                        if received_num is not None and received_num <= 100:
                             received = int(received_num)
-                        else:
-                            received = 0  # Default to 0 if we can't parse it
                 
-                # If received is still None, set it to same as purchased
                 if received is None:
-                    received = purchased
+                    received = purchased  # Default received to purchased if not found
             
             if purchased is None:
                 print(f"Could not find valid purchased quantity in line: {original_line}")
@@ -260,8 +251,7 @@ def parse_invoice_text(text):
                 continue
             
             cost_per_packet = numbers[0]  # First number is cost per packet
-            # Calculate total cost based on received quantity
-            total_cost = round(received * cost_per_packet, 2)
+            total_cost = numbers[1]  # Use the actual total from the invoice
             
             # Extract the quantity in parentheses and full description
             bar = 0
@@ -345,7 +335,7 @@ def parse_invoice_text(text):
                 'Description': description,  # Just the type (F S, Flo, Diges, etc)
                 'Product': product,         # The actual product description
                 'CostPerPacket': cost_per_packet,
-                'TotalCost': total_cost,
+                'TotalCost': total_cost,  # Use the actual total from the invoice
                 'BarInParanthesis': bar,
                 'UnitCost': round(cost_per_packet / bar, 2) if bar > 0 else None
             }
