@@ -88,7 +88,9 @@ def clean_ocr_text(text):
 
 # Function to clean and normalize a line of text
 def clean_line(line):
-    # Do NOT convert ES) ) to 55 anymore - we'll handle this pattern in parse_invoice_text
+    # Handle "2 = 2" pattern first
+    if line.strip().startswith('2 = 2'):
+        line = '1 1' + line[5:]  # Replace "2 = 2" with "1 1"
     
     # Special case for common OCR errors in quantities
     line = line.replace('3)', '5')  # Fix for 3) -> 5
@@ -158,7 +160,7 @@ def convert_to_number(text):
 def parse_invoice_text(text):
     # Define common OCR error patterns
     ZERO_INDICATORS = ['O', '0', 'QO', 'iL', 'il', 'al', 'aI', 'ul', 'él']
-    ONE_INDICATORS = ['il', 'iL', 'al', 'aI', 'ull', '1', 'i 1', '= 1', '2 = 2']  # Added '2 = 2' as ONE indicator
+    ONE_INDICATORS = ['il', 'iL', 'al', 'aI', 'ull', '1', 'i 1', '= 1', '2 = 2']
     
     # Define known description patterns
     KNOWN_DESCRIPTIONS = ['F S', 'Flo', 'Diges', 'Pres', 'Spi']
@@ -197,51 +199,51 @@ def parse_invoice_text(text):
             received = None
             purchased_idx = -1
             
-            # Check for ES) pattern at the start
-            if parts and ('ES)' in parts[0] or (len(parts) > 1 and 'ES)' in parts[1])):
+            # First, check for the exact "2 = 2" pattern at the start of the line
+            if len(parts) >= 3 and parts[0] == '2' and parts[1] == '=' and parts[2] == '2':
+                purchased = 1
+                received = 1
+                purchased_idx = 0
+            # Check for ES) pattern
+            elif parts and ('ES)' in parts[0] or (len(parts) > 1 and 'ES)' in parts[1])):
                 purchased = 5
-                received = 5  # Set received to 5 as well for ES) pattern
+                received = 5
                 purchased_idx = 0 if 'ES)' in parts[0] else 1
             else:
-                # Check for special pattern "2 = 2" - now treating it as 1 and 1
-                if len(parts) >= 3 and ' '.join(parts[:3]) == '2 = 2':
-                    purchased = 1
-                    received = 1
-                    purchased_idx = 0
-                else:
-                    # Normal quantity processing
-                    for i in range(code_index):
-                        # Check for known OCR patterns first
-                        if any(ind in parts[i] for ind in ONE_INDICATORS):
-                            purchased = 1
-                            purchased_idx = i
-                            break
-                        # Special case: if the part contains '2' and the next part contains '=' or '2'
-                        elif i + 1 < len(parts) and parts[i] == '2' and ('=' in parts[i+1] or '2' in parts[i+1]):
-                            purchased = 1
-                            received = 1
-                            purchased_idx = i
-                            break
-                        num = convert_to_number(parts[i])
-                        if num is not None and num <= 100:  # Reasonable quantity check
-                            purchased = int(num)
-                            purchased_idx = i
-                            break
-                    
-                    # Look for received quantity only if not already set
-                    if received is None and purchased_idx != -1 and purchased_idx + 1 < len(parts):
-                        next_part = parts[purchased_idx + 1]
-                        if next_part in ZERO_INDICATORS:
-                            received = 0
-                        elif any(ind in next_part for ind in ONE_INDICATORS):
-                            received = 1
-                        else:
-                            received_num = convert_to_number(next_part)
-                            if received_num is not None and received_num <= 100:
-                                received = int(received_num)
-                    
-                    if received is None:
-                        received = purchased  # Default received to purchased if not found
+                # Try to get the purchased quantity
+                for i in range(code_index):
+                    # Try to convert the current part to a number
+                    num = convert_to_number(parts[i])
+                    if num is not None and num <= 100:  # Reasonable quantity check
+                        purchased = int(num)
+                        purchased_idx = i
+                        
+                        # For cases like "10 10", immediately check the next part
+                        if i + 1 < len(parts):
+                            next_num = convert_to_number(parts[i + 1])
+                            if next_num == num:  # If next number matches current
+                                received = int(next_num)
+                        break
+                    # If conversion failed, check for known patterns
+                    elif any(ind in parts[i] for ind in ONE_INDICATORS):
+                        purchased = 1
+                        purchased_idx = i
+                        break
+                
+                # Only look for received quantity if it wasn't set in the previous step
+                if received is None and purchased_idx != -1 and purchased_idx + 1 < len(parts):
+                    next_part = parts[purchased_idx + 1]
+                    if next_part in ZERO_INDICATORS:
+                        received = 0
+                    elif any(ind in next_part for ind in ONE_INDICATORS):
+                        received = 1
+                    else:
+                        received_num = convert_to_number(next_part)
+                        if received_num is not None and received_num <= 100:
+                            received = int(received_num)
+                
+                if received is None:
+                    received = purchased  # Default received to purchased if not found
             
             if purchased is None:
                 print(f"Could not find valid purchased quantity in line: {original_line}")
