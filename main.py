@@ -105,14 +105,16 @@ def clean_line(line):
     line = re.sub(r'\bCAS \$(\d+)\b', r'CAS S\1', line)  # CAS $15 -> CAS S15
     
     # Fix common OCR errors in measurements
-    line = re.sub(r'(\d{2})62\b', r'\1oz', line)  # 1262, 1362, etc. -> 12oz, 13oz, etc.
-    line = re.sub(r'l(\d)(?=[^\d]|$)', r'1\1', line)  # l2, l3, l4, etc. -> 12, 13, 14, etc.
+    line = re.sub(r'(\d+)\.loz\b', r'\1.1oz', line)  # 14.loz -> 14.1oz
+    line = re.sub(r'(\d+)\.1loz\b', r'\1.1oz', line)  # 14.1loz -> 14.1oz
+    line = re.sub(r'(\d+)o0z\b', r'\1oz', line)  # 14o0z, 7o0z -> 14oz, 7oz
     line = re.sub(r'(\d+)l(\d+)', r'\1\2', line)  # Handle cases like 14.1loz -> 14.1oz
     
     # Fix common OCR errors in unit measurements
     line = re.sub(r'(\d+)[O0]z\b', r'\1oz', line)  # 14Oz or 140z -> 14oz
     line = re.sub(r'(\d+)Lo\b', r'\1oz', line)     # 14Lo -> 14oz
     line = re.sub(r'(\d+)1o\b', r'\1oz', line)     # 141o -> 14oz
+    line = re.sub(r'(\d+)02\b', r'\1oz', line)     # 1402 -> 14oz
     
     # Fix common OCR errors in pound measurements
     line = re.sub(r'\b[1Il]b\b', 'lb', line)       # 1b, lb, Ib -> lb
@@ -132,7 +134,7 @@ def clean_line(line):
     line = ' '.join(line.split())
     
     # Final normalization of units
-    line = re.sub(r'(\d+)\s*[oO0]z\b', r'\1oz', line)  # Fix any remaining oz variations
+    line = re.sub(r'(\d+(?:\.\d+)?)\s*[oO0]z\b', r'\1oz', line)  # Fix any remaining oz variations, including decimals
     line = re.sub(r'(\d+)\s*[lL][bB]\b', r'\1lb', line)  # Fix any remaining lb variations
     
     return line
@@ -290,6 +292,10 @@ def parse_invoice_text(text):
             # Get the product code (Code2)
             code2 = parts[code_index + 1]
             
+            # Special case for product code 993 -> Q93
+            if code2 == '993':
+                code2 = 'Q93'
+            
             # Look ahead for the description to determine if we need to add a prefix
             description = None
             for desc in KNOWN_DESCRIPTIONS:
@@ -300,15 +306,11 @@ def parse_invoice_text(text):
             # Add prefix to code2 if needed based on description
             if description and description in DESCRIPTION_CODE_PREFIX:
                 expected_prefix = DESCRIPTION_CODE_PREFIX[description]
-                # If code2 is just numbers and doesn't start with the expected prefix
-                if code2.replace('$', '').isdigit() or (code2.startswith('$') and code2[1:].isdigit()):
+                # Only add prefix if code2 doesn't already have a letter prefix
+                if code2.isdigit() or (code2.startswith('$') and code2[1:].isdigit()):
                     code2 = expected_prefix + code2.replace('$', '')
             
             code1 = parts[code_index]  # CAS/PK/BAG
-            
-            # Special case for product code 993 -> Q93
-            if code2 == '993':
-                code2 = 'Q93'
             
             # Find the cost per packet and total (should be the last two numbers)
             # But make sure they're reasonable (not extremely large numbers)
@@ -442,10 +444,13 @@ def invoice_pdf_to_excel(pdf_path, output_excel_path):
         print("\nDebug: Initial DataFrame columns:")
         print(df.columns.tolist())
         
+        # Calculate Tentative column
+        df['Tentative'] = df.apply(lambda row: round((row['CostPerPacket'] / row['BarInParanthesis'] * 1.7), 2) if row['BarInParanthesis'] > 0 else None, axis=1)
+        
         # Reorder columns to match the image format
         column_order = [
             'Purchased', 'Received', 'Code1', 'Code2', 'Brand', 'Description',
-            'Product', 'CostPerPacket', 'TotalCost', 'BarInParanthesis', 'UnitCost'
+            'Product', 'CostPerPacket', 'TotalCost', 'BarInParanthesis', 'UnitCost', 'Tentative'
         ]
         
         print("\nDebug: Checking for missing columns:")
@@ -470,7 +475,7 @@ def invoice_pdf_to_excel(pdf_path, output_excel_path):
             worksheet = writer.sheets['Invoice Details']
             
             # Format currency columns
-            currency_columns = ['CostPerPacket', 'UnitCost', 'TotalCost']
+            currency_columns = ['CostPerPacket', 'UnitCost', 'TotalCost', 'Tentative']
             for col in currency_columns:
                 col_idx = column_order.index(col) + 1  # +1 because Excel columns start at 1
                 for row in range(2, len(df) + 2):  # +2 to account for header and 1-based indexing
