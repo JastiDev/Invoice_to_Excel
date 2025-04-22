@@ -114,13 +114,8 @@ def clean_line(line):
 # Function to convert OCR text to number
 def convert_to_number(text):
     # First handle the complete pattern to avoid double conversion
-    if 'ES) )' in text:
-        # text = text.replace('ES) )', '55')
-        text = text.replace('ES)', '5')
-    else:
-        # Only if the complete pattern isn't found, handle individual cases
-        text = text.replace('ES)', '5')
-        # text = text.replace(')', '5')
+    if 'ES) )' in text or 'ES)' in text:
+        return 5
     
     # Other special case conversions for known OCR errors
     text = text.replace('QO', '0')
@@ -154,6 +149,13 @@ def convert_to_number(text):
 
 # Function to parse extracted text and find the required data
 def parse_invoice_text(text):
+    # Define common OCR error patterns
+    ZERO_INDICATORS = ['O', '0', 'QO', 'iL', 'il', 'al', 'aI', 'ul', 'él']
+    ONE_INDICATORS = ['il', 'iL', 'al', 'aI', 'ull', '1']
+    
+    # Define known description patterns
+    KNOWN_DESCRIPTIONS = ['F S', 'Flo', 'Diges', 'Pres', 'Spi']
+    
     items = []
     
     for line in text.split('\n'):
@@ -185,18 +187,24 @@ def parse_invoice_text(text):
                 
             # Extract Purchased and Received quantities
             purchased = None
-            received = 0  # Default to 0
+            received = None
             purchased_idx = -1
             
-            # Handle special case for "ES) )" -> "5"
-            if 'ES) )' in line:
-                purchased = 5
-                received = 5
-            else:
+            # First check for ES) ) pattern before any other processing
+            is_es_pattern = False
+            for i in range(min(3, code_index)):  # Only check first few parts
+                if 'ES)' in parts[i]:
+                    purchased = 5
+                    received = 5
+                    is_es_pattern = True
+                    break
+            
+            if not is_es_pattern:
+                # Normal quantity processing
                 # First number before CAS/PK/BAG is purchased
                 for i in range(code_index):
                     # Check for known OCR patterns first
-                    if parts[i] in ['il', 'iL', 'al', 'aI']:
+                    if parts[i] in ONE_INDICATORS:
                         purchased = 1
                         purchased_idx = i
                         break
@@ -209,17 +217,25 @@ def parse_invoice_text(text):
                 # Look for received quantity (O, 0, or a number)
                 if purchased_idx != -1 and purchased_idx + 1 < len(parts):
                     next_part = parts[purchased_idx + 1]
-                    if next_part in ['O', '0', 'QO', 'iL', 'il', 'al', 'aI']:  # Zero indicators
+                    if next_part in ZERO_INDICATORS:  # Zero indicators
                         received = 0
+                    elif next_part in ONE_INDICATORS:  # One indicators
+                        received = 1
                     else:
                         received_num = convert_to_number(next_part)
-                        if received_num is not None:
+                        if received_num is not None and received_num <= 100:  # Reasonable quantity check
                             received = int(received_num)
+                        else:
+                            received = 0  # Default to 0 if we can't parse it
+                
+                # If received is still None, set it to same as purchased
+                if received is None:
+                    received = purchased
             
             if purchased is None:
                 print(f"Could not find valid purchased quantity in line: {original_line}")
                 continue
-                
+            
             code1 = parts[code_index]  # CAS/PK/BAG
             code2 = parts[code_index+1]  # Product code
             
@@ -277,19 +293,31 @@ def parse_invoice_text(text):
             # Get description and product parts
             if brand_match:
                 rest = full_description[brand_match.end():].strip()
-                # Split on first period or space
-                split_chars = ['.', ' ']
-                split_index = len(rest)  # Default to end if no split char found
-                for char in split_chars:
-                    pos = rest.find(char)
-                    if pos != -1 and pos < split_index:
-                        split_index = pos
                 
-                description = rest[:split_index].strip()
-                if split_index < len(rest):
-                    product = rest[split_index + 1:].strip()
-                else:
-                    product = ""
+                # Try to match known description patterns first
+                description = None
+                product = rest
+                
+                for desc in KNOWN_DESCRIPTIONS:
+                    if rest.startswith(desc):
+                        description = desc
+                        product = rest[len(desc):].strip()
+                        break
+                
+                if description is None:
+                    # If no known pattern found, split on first period or space
+                    split_chars = ['.', ' ']
+                    split_index = len(rest)  # Default to end if no split char found
+                    for char in split_chars:
+                        pos = rest.find(char)
+                        if pos != -1 and pos < split_index:
+                            split_index = pos
+                    
+                    description = rest[:split_index].strip()
+                    if split_index < len(rest):
+                        product = rest[split_index + 1:].strip()
+                    else:
+                        product = ""
                 
                 # If description contains a period, split there
                 if '.' in description:
