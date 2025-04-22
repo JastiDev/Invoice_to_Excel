@@ -115,7 +115,8 @@ def clean_line(line):
 def convert_to_number(text):
     # First handle the complete pattern to avoid double conversion
     if 'ES) )' in text:
-        text = text.replace('ES) )', '55')
+        # text = text.replace('ES) )', '55')
+        text = text.replace('ES)', '5')
     else:
         # Only if the complete pattern isn't found, handle individual cases
         text = text.replace('ES)', '5')
@@ -182,17 +183,36 @@ def parse_invoice_text(text):
             if code_index == -1 or code_index + 1 >= len(parts):
                 continue
                 
-            # Extract the components
-            received = None
-            # Try a few positions before CAS/PK/BAG to find a valid number
-            for i in range(max(0, code_index-3), code_index):
-                num = convert_to_number(parts[i])
-                if num is not None and num <= 100:  # Reasonable quantity check
-                    received = int(num)
-                    break
+            # Extract Purchased and Received quantities
+            purchased = None
+            received = 0  # Default to 0
             
-            if received is None:
-                print(f"Could not find valid received quantity in line: {original_line}")
+            # Handle special case for "ES) )" -> "5"
+            if 'ES) )' in line:
+                purchased = 5
+                received = 5
+            else:
+                # First number before CAS/PK/BAG is purchased
+                for i in range(code_index):
+                    num = convert_to_number(parts[i])
+                    if num is not None and num <= 100:  # Reasonable quantity check
+                        purchased = int(num)
+                        break
+                
+                # Look for received quantity (O, 0, or a number)
+                if purchased is not None:
+                    idx = parts.index(str(purchased)) + 1
+                    if idx < len(parts):
+                        next_part = parts[idx]
+                        if next_part in ['O', '0', 'QO', 'iL', 'il']:  # Zero indicators
+                            received = 0
+                        else:
+                            received_num = convert_to_number(next_part)
+                            if received_num is not None:
+                                received = int(received_num)
+            
+            if purchased is None:
+                print(f"Could not find valid purchased quantity in line: {original_line}")
                 continue
                 
             code1 = parts[code_index]  # CAS/PK/BAG
@@ -202,50 +222,95 @@ def parse_invoice_text(text):
             if code2 == '993':
                 code2 = 'Q93'
             
-            # Find the last two numbers (cost and total)
+            # Find the cost per packet and total (should be the last two numbers)
+            # But make sure they're reasonable (not extremely large numbers)
             numbers = []
-            for part in parts[code_index+2:]:
+            for part in reversed(parts):
                 num = convert_to_number(part)
                 if num is not None:
-                    numbers.append(num)
+                    # Skip unreasonably large numbers (likely OCR errors)
+                    if num < 1000:  # Assuming no item costs more than 1000
+                        numbers.insert(0, num)
+                        if len(numbers) == 2:
+                            break
             
             if len(numbers) < 2:
-                print(f"Could not find cost and total in line: {original_line}")
+                print(f"Could not find valid cost and total in line: {original_line}")
                 continue
-                
-            cost_per_packet = numbers[-2]
-            total_cost = numbers[-1]
             
-            # Extract the quantity in parentheses
+            cost_per_packet = numbers[0]  # First number is cost per packet
+            # Calculate total cost based on received quantity
+            total_cost = round(received * cost_per_packet, 2)
+            
+            # Extract the quantity in parentheses and full description
             bar = 0
-            for part in parts:
+            description_parts = []
+            
+            # Start collecting description after code2
+            for part in parts[code_index+2:]:
+                # Stop if we hit a cost number
+                if convert_to_number(part) in numbers:
+                    break
+                    
+                # Check for quantity in parentheses
                 if '(' in part and ')' in part:
                     num_str = part[part.index('(')+1:part.index(')')]
                     num = convert_to_number(num_str)
                     if num is not None:
                         bar = int(num)
-                        break
+                
+                description_parts.append(part)
             
-            # Get the description (everything between code2 and the last numbers)
-            desc_start = code_index + 2
-            desc_end = len(parts) - 2
-            while desc_end > desc_start and any(c.isdigit() for c in parts[desc_end-1]):
-                desc_end -= 1
-            description = ' '.join(parts[desc_start:desc_end])
+            # Join all parts for full description
+            full_description = ' '.join(description_parts)
             
-            # Extract brand
+            # Extract brand and description parts
             brand_pattern = r'(Deep|Bre|Mirch|Bansi|Britanni|Sujata|Chandan|Hem|MDH)'
-            brand_match = re.search(brand_pattern, description)
+            brand_match = re.search(brand_pattern, full_description)
             brand = brand_match.group(1) if brand_match else "Unknown"
+            
+            # Get description and product parts
+            if brand_match:
+                rest = full_description[brand_match.end():].strip()
+                # Split on first period or space
+                split_chars = ['.', ' ']
+                split_index = len(rest)  # Default to end if no split char found
+                for char in split_chars:
+                    pos = rest.find(char)
+                    if pos != -1 and pos < split_index:
+                        split_index = pos
+                
+                description = rest[:split_index].strip()
+                if split_index < len(rest):
+                    product = rest[split_index + 1:].strip()
+                else:
+                    product = ""
+                
+                # If description contains a period, split there
+                if '.' in description:
+                    description = description.split('.')[0]
+                
+                # Clean up the product string
+                product = product.strip()
+                if not product and description:
+                    # If no product but we have description with period
+                    parts = rest.split('.')
+                    if len(parts) > 1:
+                        description = parts[0]
+                        product = '.'.join(parts[1:])
+            else:
+                description = "Unknown"
+                product = full_description
             
             # Create the item dictionary
             item = {
-                'Purchased': received,
+                'Purchased': purchased,
                 'Received': received,
                 'Code1': code1,
                 'Code2': code2,
                 'Brand': brand,
-                'Description': f"{description}({bar})",
+                'Description': description,  # Just the type (F S, Flo, Diges, etc)
+                'Product': product,         # The actual product description
                 'CostPerPacket': cost_per_packet,
                 'TotalCost': total_cost,
                 'BarInParanthesis': bar,
@@ -281,7 +346,7 @@ def invoice_pdf_to_excel(pdf_path, output_excel_path):
         # Reorder columns to match the image format
         column_order = [
             'Purchased', 'Received', 'Code1', 'Code2', 'Brand', 'Description',
-            'CostPerPacket', 'TotalCost', 'BarInParanthesis', 'UnitCost'
+            'Product', 'CostPerPacket', 'TotalCost', 'BarInParanthesis', 'UnitCost'
         ]
         
         print("\nDebug: Checking for missing columns:")

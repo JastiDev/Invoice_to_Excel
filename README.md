@@ -5,7 +5,14 @@ A Python application that converts PDF invoices into structured Excel spreadshee
 ## Features
 
 - **PDF Text Extraction**: Supports both native text-based PDFs and scanned documents
-- **OCR Capabilities**: Uses Tesseract OCR for processing scanned invoices
+- **Advanced OCR Processing**:
+  - Uses Tesseract OCR with optimized settings
+  - Advanced image preprocessing:
+    - Adaptive thresholding
+    - Noise reduction
+    - Contrast enhancement
+    - Sharpness enhancement
+  - Character whitelist for improved accuracy
 - **Smart Data Parsing**: Extracts key invoice information including:
   - Purchase quantities
   - Product codes
@@ -32,6 +39,8 @@ A Python application that converts PDF invoices into structured Excel spreadshee
   - pdfplumber
   - pytesseract
   - Pillow (PIL)
+  - opencv-python
+  - numpy
   - openpyxl
 - Tesseract OCR engine installed on your system
   - Windows: Install from [Tesseract GitHub Releases](https://github.com/UB-Mannheim/tesseract/wiki)
@@ -43,7 +52,7 @@ A Python application that converts PDF invoices into structured Excel spreadshee
 2. Install required Python packages:
 
 ```bash
-pip install pandas pdfplumber pytesseract Pillow openpyxl
+pip install pandas pdfplumber pytesseract Pillow opencv-python numpy openpyxl
 ```
 
 3. Install Tesseract OCR engine for your operating system
