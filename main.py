@@ -3,7 +3,7 @@ import pdfplumber  # For text extraction from PDF
 import pytesseract  # For OCR if PDF is scanned
 from PIL import Image  # For handling image data
 import io
-import re
+import re  # For regular expressions
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from datetime import datetime
@@ -95,6 +95,21 @@ def clean_line(line):
     # Special case for common OCR errors in quantities
     line = line.replace('3)', '5')  # Fix for 3) -> 5
     
+    # Fix common OCR errors in unit measurements
+    # Replace 02, O2 with oz when it appears at word boundaries or end of string
+    line = re.sub(r'(\d+)02\b', r'\1oz', line)  # e.g., 1402 -> 14oz
+    line = re.sub(r'(\d+)O2\b', r'\1oz', line)  # e.g., 14O2 -> 14oz
+    line = re.sub(r'\b02\b', 'oz', line)        # standalone 02 -> oz
+    line = re.sub(r'\bO2\b', 'oz', line)        # standalone O2 -> oz
+    
+    # Fix common OCR errors in pound measurements
+    line = re.sub(r'\b1b\b', 'lb', line)        # standalone 1b -> lb
+    line = re.sub(r'\b1B\b', 'lb', line)        # standalone 1B -> lb
+    line = re.sub(r'(\d+)1b\b', r'\1lb', line)  # e.g., 21b -> 2lb
+    line = re.sub(r'(\d+)1B\b', r'\1lb', line)  # e.g., 21B -> 2lb
+    line = re.sub(r'\bIb\b', 'lb', line)        # standalone Ib -> lb
+    line = re.sub(r'\blB\b', 'lb', line)        # standalone lB -> lb
+    
     # Remove special characters that aren't needed
     line = line.replace('*', ' ')
     line = line.replace('-', ' ')
@@ -109,10 +124,13 @@ def clean_line(line):
     # Normalize spaces
     line = ' '.join(line.split())
     
-    # Normalize units - ensure 'oz' is preserved correctly
+    # Normalize units - ensure 'oz' and 'lb' are preserved correctly
     line = line.replace('.loz', 'oz').replace('.Lb', 'lb')
     line = line.replace('oz.', 'oz').replace('lb.', 'lb')
     line = line.replace('0z', 'oz')  # Fix 0z -> oz
+    line = line.replace('Oz', 'oz')  # Fix Oz -> oz
+    line = line.replace('LB', 'lb')  # Fix LB -> lb
+    line = line.replace('Lb', 'lb')  # Fix Lb -> lb
     
     return line
 
@@ -159,8 +177,14 @@ def convert_to_number(text):
 # Function to parse extracted text and find the required data
 def parse_invoice_text(text):
     # Define common OCR error patterns
-    ZERO_INDICATORS = ['O', '0', 'QO', 'iL', 'il', 'al', 'aI', 'ul', 'él']
+    ZERO_INDICATORS = ['O', '0', 'QO']  # Removed 'iL', 'il', 'al', 'aI', 'ul', 'él' as these should be ONE indicators
     ONE_INDICATORS = ['il', 'iL', 'al', 'aI', 'ull', '1', 'i 1', '= 1', '2 = 2']
+    
+    # Define patterns that should always be treated as 1 and 1
+    ONE_ONE_PATTERNS = [
+        '1 iL', '1 il', '1 1', '4 1', '7 i 1', '7 1', 'i 1', '2 = 2',
+        '1 al', '1 aI', '1 ul', '1 él'
+    ]
     
     # Define known description patterns
     KNOWN_DESCRIPTIONS = ['F S', 'Flo', 'Diges', 'Pres', 'Spi']
@@ -199,11 +223,15 @@ def parse_invoice_text(text):
             received = None
             purchased_idx = -1
             
-            # First, check for the exact "2 = 2" pattern at the start of the line
-            if len(parts) >= 3 and parts[0] == '2' and parts[1] == '=' and parts[2] == '2':
+            # Check for patterns that should always be 1 and 1 first
+            first_three = ' '.join(parts[:3])
+            first_two = ' '.join(parts[:2])
+            if any(pattern in first_three for pattern in ONE_ONE_PATTERNS) or \
+               any(pattern in first_two for pattern in ONE_ONE_PATTERNS):
                 purchased = 1
                 received = 1
                 purchased_idx = 0
+                print(f"Found pattern for 1 and 1 in: {first_three}")
             # Check for ES) pattern
             elif parts and ('ES)' in parts[0] or (len(parts) > 1 and 'ES)' in parts[1])):
                 purchased = 5
