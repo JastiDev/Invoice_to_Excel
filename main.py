@@ -186,6 +186,7 @@ def parse_invoice_text(text):
             # Extract Purchased and Received quantities
             purchased = None
             received = 0  # Default to 0
+            purchased_idx = -1
             
             # Handle special case for "ES) )" -> "5"
             if 'ES) )' in line:
@@ -194,22 +195,26 @@ def parse_invoice_text(text):
             else:
                 # First number before CAS/PK/BAG is purchased
                 for i in range(code_index):
+                    # Check for known OCR patterns first
+                    if parts[i] in ['il', 'iL', 'al', 'aI']:
+                        purchased = 1
+                        purchased_idx = i
+                        break
                     num = convert_to_number(parts[i])
                     if num is not None and num <= 100:  # Reasonable quantity check
                         purchased = int(num)
+                        purchased_idx = i
                         break
                 
                 # Look for received quantity (O, 0, or a number)
-                if purchased is not None:
-                    idx = parts.index(str(purchased)) + 1
-                    if idx < len(parts):
-                        next_part = parts[idx]
-                        if next_part in ['O', '0', 'QO', 'iL', 'il']:  # Zero indicators
-                            received = 0
-                        else:
-                            received_num = convert_to_number(next_part)
-                            if received_num is not None:
-                                received = int(received_num)
+                if purchased_idx != -1 and purchased_idx + 1 < len(parts):
+                    next_part = parts[purchased_idx + 1]
+                    if next_part in ['O', '0', 'QO', 'iL', 'il', 'al', 'aI']:  # Zero indicators
+                        received = 0
+                    else:
+                        received_num = convert_to_number(next_part)
+                        if received_num is not None:
+                            received = int(received_num)
             
             if purchased is None:
                 print(f"Could not find valid purchased quantity in line: {original_line}")
