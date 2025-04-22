@@ -105,10 +105,14 @@ def clean_line(line):
     line = re.sub(r'\bCAS \$(\d+)\b', r'CAS S\1', line)  # CAS $15 -> CAS S15
     
     # Fix common OCR errors in measurements
+    line = re.sub(r'(\d{2})62[.\s]', r'\1oz ', line)  # 1262. -> 12oz, 1462. -> 14oz
+    line = re.sub(r'l(\d+)oz\b', r'1\1oz', line)  # l2oz -> 12oz, l4oz -> 14oz
+    line = re.sub(r'l(\d+)pc\b', r'1\1pc', line)  # l2pc -> 12pc, l4pc -> 14pc
     line = re.sub(r'(\d+)\.loz\b', r'\1.1oz', line)  # 14.loz -> 14.1oz
     line = re.sub(r'(\d+)\.1loz\b', r'\1.1oz', line)  # 14.1loz -> 14.1oz
     line = re.sub(r'(\d+)o0z\b', r'\1oz', line)  # 14o0z, 7o0z -> 14oz, 7oz
     line = re.sub(r'(\d+)l(\d+)', r'\1\2', line)  # Handle cases like 14.1loz -> 14.1oz
+    line = re.sub(r'(\d+\.\d+)2z\b', r'\1oz', line)  # 3.502z -> 3.50oz
     
     # Fix common OCR errors in unit measurements
     line = re.sub(r'(\d+)[O0]z\b', r'\1oz', line)  # 14Oz or 140z -> 14oz
@@ -136,6 +140,7 @@ def clean_line(line):
     # Final normalization of units
     line = re.sub(r'(\d+(?:\.\d+)?)\s*[oO0]z\b', r'\1oz', line)  # Fix any remaining oz variations, including decimals
     line = re.sub(r'(\d+)\s*[lL][bB]\b', r'\1lb', line)  # Fix any remaining lb variations
+    line = re.sub(r'(\d+)\s*[pP][cC]\b', r'\1pc', line)  # Normalize pc variations
     
     return line
 
@@ -334,45 +339,48 @@ def parse_invoice_text(text):
             # Extract the quantity in parentheses and full description
             bar = 0
             description_parts = []
-            product_parts = []
-            last_parenthesis_index = -1
             
             # Start collecting description after code2
-            for i, part in enumerate(parts[code_index+2:]):
+            full_text = ' '.join(parts[code_index+2:])
+            
+            # Find all parentheses contents
+            parentheses_pattern = r'\((\d+)\)'
+            parentheses_match = re.search(parentheses_pattern, full_text)
+            
+            if parentheses_match:
+                try:
+                    bar = int(parentheses_match.group(1))
+                except ValueError:
+                    print(f"Warning: Could not convert parentheses content to number: {parentheses_match.group(1)}")
+                    bar = 0
+            
+            # Split the text at cost numbers for description
+            for part in parts[code_index+2:]:
                 # Stop if we hit a cost number
                 if convert_to_number(part) in [cost_per_packet, total_cost]:
                     break
-                    
-                # Check for quantity in parentheses
-                if '(' in part and ')' in part:
-                    num_str = part[part.index('(')+1:part.index(')')]
-                    num = convert_to_number(num_str)
-                    if num is not None:
-                        bar = int(num)
-                        last_parenthesis_index = i
-                
                 description_parts.append(part)
             
             # Clean up product name - use pattern-based approach
             def clean_product_name(text):
-                # Split the text into parts
-                parts = text.split()
+                # Find the parentheses pattern
+                match = re.search(r'(.*?\(\d+\))', text)
+                if match:
+                    # Take everything up to and including the parentheses
+                    result = match.group(1).strip()
+                else:
+                    # If no parentheses found in the text, add it from the bar value if we have it
+                    parts = text.split()
+                    result_parts = []
+                    for part in parts:
+                        if convert_to_number(part) in [cost_per_packet, total_cost]:
+                            break
+                        result_parts.append(part)
+                    result = ' '.join(result_parts)
+                    if bar > 0:  # If we have a bar value, append it in parentheses
+                        result = f"{result} ({bar})"
                 
-                # Find the part with parentheses
-                paren_index = -1
-                for i, part in enumerate(parts):
-                    if '(' in part and ')' in part:
-                        paren_index = i
-                        break
-                
-                if paren_index == -1:
-                    return text
-                
-                # Keep only the parts up to and including the parentheses
-                cleaned_parts = parts[:paren_index + 1]
-                result = ' '.join(cleaned_parts)
-                
-                # Remove any trailing punctuation and spaces
+                # Remove any trailing punctuation and spaces, but keep parentheses
                 result = re.sub(r'[.,\s]+$', '', result)
                 return result
             
