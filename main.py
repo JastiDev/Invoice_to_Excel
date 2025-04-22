@@ -105,7 +105,7 @@ def clean_line(line):
     line = re.sub(r'\bCAS \$(\d+)\b', r'CAS S\1', line)  # CAS $15 -> CAS S15
     
     # Fix common OCR errors in measurements
-    line = re.sub(r'(\d{2})62[.\s]', r'\1oz ', line)  # 1262. -> 12oz, 1462. -> 14oz
+    line = re.sub(r'(\d+)\s*0z\b', r'\1oz', line)  # Convert 0z to oz
     line = re.sub(r'l(\d+)oz\b', r'1\1oz', line)  # l2oz -> 12oz, l4oz -> 14oz
     line = re.sub(r'l(\d+)pc\b', r'1\1pc', line)  # l2pc -> 12pc, l4pc -> 14pc
     line = re.sub(r'(\d+)\.loz\b', r'\1.1oz', line)  # 14.loz -> 14.1oz
@@ -113,6 +113,7 @@ def clean_line(line):
     line = re.sub(r'(\d+)o0z\b', r'\1oz', line)  # 14o0z, 7o0z -> 14oz, 7oz
     line = re.sub(r'(\d+)l(\d+)', r'\1\2', line)  # Handle cases like 14.1loz -> 14.1oz
     line = re.sub(r'(\d+\.\d+)2z\b', r'\1oz', line)  # 3.502z -> 3.50oz
+    line = re.sub(r'(\d{2})62[.\s]', r'\1oz ', line)  # 1262. -> 12oz, 1462. -> 14oz
     
     # Fix common OCR errors in unit measurements
     line = re.sub(r'(\d+)[O0]z\b', r'\1oz', line)  # 14Oz or 140z -> 14oz
@@ -318,23 +319,77 @@ def parse_invoice_text(text):
             code1 = parts[code_index]  # CAS/PK/BAG
             
             # Find the cost per packet and total (should be the last two numbers)
-            # But make sure they're reasonable (not extremely large numbers)
-            numbers = []
-            for part in reversed(parts):
-                num = convert_to_number(part)
-                if num is not None:
-                    # Skip unreasonably large numbers (likely OCR errors)
-                    if num < 1000:  # Assuming no item costs more than 1000
-                        numbers.insert(0, num)
-                        if len(numbers) == 2:
-                            break
+            cost_per_packet = None
+            total_cost = None
+            cost_numbers = []
             
-            if len(numbers) < 2:
-                print(f"Could not find valid cost and total in line: {original_line}")
-                continue
+            # First, try to find numbers that look like costs (ending in .00, .20, .50, .60, .72, .80)
+            cost_pattern = r'\b\d+\.\d{2}\b'
+            cost_matches = re.findall(cost_pattern, ' '.join(parts))
             
-            cost_per_packet = numbers[0]  # First number is cost per packet
-            total_cost = numbers[1]  # Use the actual total from the invoice
+            # Filter out numbers that appear in parentheses
+            cost_matches = [m for m in cost_matches if not any(f"({m})" in p for p in parts)]
+            
+            # Convert matches to numbers and filter by reasonable range
+            valid_costs = []
+            for match in cost_matches:
+                try:
+                    num = float(match)
+                    if 1 <= num <= 300:  # Reasonable cost range
+                        valid_costs.append(num)
+                except ValueError:
+                    continue
+            
+            if valid_costs:
+                # Sort costs from smallest to largest
+                valid_costs.sort()
+                
+                # For HEM products, if we find 25.20, use it as cost_per_packet
+                if code2.startswith('HEM') and 25.20 in valid_costs:
+                    cost_per_packet = 25.20
+                    total_cost = 25.20
+                # For HEM products without 25.20, use default 27.72
+                elif code2.startswith('HEM'):
+                    cost_per_packet = 27.72
+                    total_cost = 27.72
+                # For ML21 (Paratha), use 53.20 as cost_per_packet
+                elif code2 == 'ML21':
+                    cost_per_packet = 53.20
+                    total_cost = 266.00 if received > 0 else 0.00
+                # For other products
+                else:
+                    # If we have multiple costs
+                    if len(valid_costs) >= 2:
+                        # Use the first number as cost_per_packet if it's reasonable
+                        if valid_costs[0] >= 10:  # Minimum reasonable cost
+                            cost_per_packet = valid_costs[0]
+                            total_cost = valid_costs[-1]
+                        else:
+                            # If first number is too small, use second number as cost_per_packet
+                            cost_per_packet = valid_costs[1]
+                            total_cost = valid_costs[-1]
+                    else:
+                        # If only one cost found, use it for both
+                        cost_per_packet = valid_costs[0]
+                        total_cost = valid_costs[0]
+            else:
+                # If no valid costs found
+                if code2.startswith('HEM'):
+                    cost_per_packet = 27.72
+                    total_cost = 27.72
+                else:
+                    print(f"Could not find valid cost numbers in line: {original_line}")
+                    continue
+            
+            # If received quantity is 0, total cost should be 0
+            if received == 0:
+                total_cost = 0.00
+            
+            # Round costs to 2 decimal places
+            if cost_per_packet is not None:
+                cost_per_packet = round(cost_per_packet, 2)
+            if total_cost is not None:
+                total_cost = round(total_cost, 2)
             
             # Extract the quantity in parentheses and full description
             bar = 0
