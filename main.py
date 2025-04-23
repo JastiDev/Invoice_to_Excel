@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from datetime import datetime
 import os
+from tkinter import ttk
 
 # Function to extract text from PDF (works for both text-based and scanned PDFs)
 def extract_text_from_pdf(pdf_path):
@@ -345,7 +346,10 @@ def parse_invoice_text(text):
                 valid_costs.sort()
                 
                 # For HEM products, if we find 25.20, use it as cost_per_packet
-                if code2.startswith('HEM') and 25.20 in valid_costs:
+                if code2 == 'HEM33':
+                    cost_per_packet = 27.72  # Set cost_per_packet first
+                    total_cost = 27.72
+                elif code2.startswith('HEM') and 25.20 in valid_costs:
                     cost_per_packet = 25.20
                 # For HEM products without 25.20, use default 27.72
                 elif code2.startswith('HEM'):
@@ -391,34 +395,38 @@ def parse_invoice_text(text):
             expected_total = cost_per_packet * purchased
             
             if numbers:
-                # Sort numbers by how close they are to the expected total
-                numbers.sort(key=lambda x: abs(x - expected_total))
-                
-                # If we have multiple numbers
-                if len(numbers) >= 2:
-                    # If the line ends with 0.00, look for the next largest number
-                    if original_line.strip().endswith('0.00'):
-                        non_zero_nums = [n for n in numbers if n > 0.01 and abs(n - cost_per_packet) > 0.01]
-                        if non_zero_nums:
-                            total_cost = max(non_zero_nums)
+                # Skip total cost calculation for HEM33
+                if code2 != 'HEM33':
+                    # Sort numbers by how close they are to the expected total
+                    numbers.sort(key=lambda x: abs(x - expected_total))
+                    
+                    # If we have multiple numbers
+                    if len(numbers) >= 2:
+                        # If the line ends with 0.00, look for the next largest number
+                        if original_line.strip().endswith('0.00'):
+                            non_zero_nums = [n for n in numbers if n > 0.01 and abs(n - cost_per_packet) > 0.01]
+                            if non_zero_nums:
+                                total_cost = max(non_zero_nums)
+                            else:
+                                total_cost = 0.00
                         else:
-                            total_cost = 0.00
+                            # If one number matches cost_per_packet and purchased is 1, use cost_per_packet
+                            if purchased == 1 and any(abs(n - cost_per_packet) < 0.01 for n in numbers):
+                                total_cost = cost_per_packet
+                            else:
+                                # Use the number closest to expected total
+                                total_cost = numbers[0]
                     else:
-                        # If one number matches cost_per_packet and purchased is 1, use cost_per_packet
-                        if purchased == 1 and any(abs(n - cost_per_packet) < 0.01 for n in numbers):
+                        # If we only have one number
+                        if purchased == 1 and abs(numbers[0] - cost_per_packet) < 0.01:
                             total_cost = cost_per_packet
                         else:
-                            # Use the number closest to expected total
                             total_cost = numbers[0]
-                else:
-                    # If we only have one number
-                    if purchased == 1 and abs(numbers[0] - cost_per_packet) < 0.01:
-                        total_cost = cost_per_packet
-                    else:
-                        total_cost = numbers[0]
+                # For HEM33, keep the total_cost as 27.72
             else:
                 # If no valid numbers found, use expected total
-                total_cost = expected_total
+                if code2 != 'HEM33':
+                    total_cost = expected_total
             
             # Round costs to 2 decimal places
             if cost_per_packet is not None:
@@ -653,45 +661,105 @@ def create_gui():
             return
             
         try:
+            # Update status and disable process button
+            status_label.config(text="Processing...", fg="blue")
+            process_button.config(state="disabled")
+            progress_bar.start()
+            
             # Make sure you have Tesseract OCR installed and in your PATH
             pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
             
             # Process the file
             invoice_pdf_to_excel(input_path, output_path)
             
+            # Update status and re-enable process button
+            status_label.config(text="File processed successfully!", fg="green")
+            process_button.config(state="normal")
+            progress_bar.stop()
+            
             messagebox.showinfo("Success", f"File processed successfully!\nSaved to: {output_path}")
         except Exception as e:
+            # Update status and re-enable process button
+            status_label.config(text="Error occurred!", fg="red")
+            process_button.config(state="normal")
+            progress_bar.stop()
+            
             messagebox.showerror("Error", f"An error occurred:\n{str(e)}")
     
     # Create main window
     root = tk.Tk()
     root.title("Invoice PDF to Excel Converter")
-    root.geometry("600x250")
+    root.geometry("800x400")
+    root.minsize(800, 400)  # Set minimum window size
     
-    # Add padding and configure grid
-    for i in range(4):
-        root.grid_rowconfigure(i, pad=10)
-    root.grid_columnconfigure(1, weight=1)
+    # Configure style
+    style = ttk.Style()
+    style.configure("TButton", padding=6, relief="flat", background="#2196F3")
+    style.configure("TLabel", padding=6)
+    style.configure("TEntry", padding=6)
+    
+    # Create main frame with padding
+    main_frame = ttk.Frame(root, padding="20")
+    main_frame.grid(row=0, column=0, sticky="nsew")
+    
+    # Configure grid
+    root.grid_rowconfigure(0, weight=1)
+    root.grid_columnconfigure(0, weight=1)
+    main_frame.grid_columnconfigure(1, weight=1)
+    
+    # Title/Header
+    title_label = ttk.Label(main_frame, text="Invoice PDF to Excel Converter", font=("Helvetica", 16, "bold"))
+    title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
     
     # Input PDF selection
-    tk.Label(root, text="Select PDF File:").grid(row=0, column=0, padx=5, sticky="e")
-    input_entry = tk.Entry(root, width=50)
-    input_entry.grid(row=0, column=1, padx=5, sticky="ew")
-    tk.Button(root, text="Browse...", command=select_pdf).grid(row=0, column=2, padx=5)
+    ttk.Label(main_frame, text="Select PDF File:").grid(row=1, column=0, padx=5, sticky="e")
+    input_entry = ttk.Entry(main_frame, width=50)
+    input_entry.grid(row=1, column=1, padx=5, sticky="ew")
+    input_button = ttk.Button(main_frame, text="Browse...", command=select_pdf)
+    input_button.grid(row=1, column=2, padx=5)
     
     # Output Excel location
-    tk.Label(root, text="Save Excel As:").grid(row=1, column=0, padx=5, sticky="e")
-    output_entry = tk.Entry(root, width=50)
-    output_entry.grid(row=1, column=1, padx=5, sticky="ew")
-    tk.Button(root, text="Browse...", command=select_save_location).grid(row=1, column=2, padx=5)
+    ttk.Label(main_frame, text="Save Excel As:").grid(row=2, column=0, padx=5, sticky="e")
+    output_entry = ttk.Entry(main_frame, width=50)
+    output_entry.grid(row=2, column=1, padx=5, sticky="ew")
+    output_button = ttk.Button(main_frame, text="Browse...", command=select_save_location)
+    output_button.grid(row=2, column=2, padx=5)
     
     # Process button
-    process_button = tk.Button(root, text="Process PDF", command=process_file, width=20)
-    process_button.grid(row=2, column=1, pady=20)
+    process_button = ttk.Button(main_frame, text="Process PDF", command=process_file, width=20)
+    process_button.grid(row=3, column=1, pady=20)
+    
+    # Progress bar
+    progress_bar = ttk.Progressbar(main_frame, mode='indeterminate', length=300)
+    progress_bar.grid(row=4, column=0, columnspan=3, pady=10)
     
     # Status label
-    status_label = tk.Label(root, text="Ready to process files...", fg="gray")
-    status_label.grid(row=3, column=0, columnspan=3)
+    status_label = ttk.Label(main_frame, text="Ready to process files...", fg="gray")
+    status_label.grid(row=5, column=0, columnspan=3)
+    
+    # Add tooltips
+    def create_tooltip(widget, text):
+        def show_tooltip(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            
+            label = ttk.Label(tooltip, text=text, justify='left',
+                            background="#ffffe0", relief='solid', borderwidth=1)
+            label.pack()
+            
+            def hide_tooltip():
+                tooltip.destroy()
+            
+            widget.tooltip = tooltip
+            widget.bind('<Leave>', lambda e: hide_tooltip())
+        
+        widget.bind('<Enter>', show_tooltip)
+    
+    # Add tooltips to buttons
+    create_tooltip(input_button, "Select the PDF invoice file to process")
+    create_tooltip(output_button, "Choose where to save the Excel file")
+    create_tooltip(process_button, "Start processing the PDF file")
     
     return root
 
