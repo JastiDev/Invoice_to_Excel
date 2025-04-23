@@ -1,6 +1,7 @@
 {
   "cSpell.words": [
     "Bansi",
+    "borderwidth",
     "Britanni",
     "Chandan",
     "columnspan",
@@ -13,6 +14,7 @@
     "Paratha",
     "pdfplumber",
     "Sujata",
-    "tesseract"
+    "tesseract",
+    "yscrollcommand"
   ]
 }

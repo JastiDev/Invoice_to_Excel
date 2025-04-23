@@ -552,21 +552,31 @@ def parse_invoice_text(text):
     return items
 
 # Main function to process PDF and export to Excel
-def invoice_pdf_to_excel(pdf_path, output_excel_path):
+def invoice_pdf_to_excel(pdf_path, output_excel_path, log_callback=None):
     # Step 1: Extract text from PDF
+    if log_callback:
+        log_callback("Step 1: Extracting text from PDF...")
     text = extract_text_from_pdf(pdf_path)
     
     # Step 2: Parse the text to extract structured data
+    if log_callback:
+        log_callback("Step 2: Parsing extracted text...")
     invoice_items = parse_invoice_text(text)
     
     # Step 3: Create DataFrame and export to Excel
     if invoice_items:
+        if log_callback:
+            log_callback(f"Found {len(invoice_items)} items in the invoice")
+        
         df = pd.DataFrame(invoice_items)
         
-        print("\nDebug: Initial DataFrame columns:")
-        print(df.columns.tolist())
+        if log_callback:
+            log_callback("Creating DataFrame with columns:")
+            log_callback(str(df.columns.tolist()))
         
         # Calculate Tentative column
+        if log_callback:
+            log_callback("Calculating Tentative column...")
         df['Tentative'] = df.apply(lambda row: round((row['CostPerPacket'] / row['BarInParanthesis'] * 1.7), 2) if row['BarInParanthesis'] > 0 else None, axis=1)
         
         # Reorder columns to match the image format
@@ -575,20 +585,20 @@ def invoice_pdf_to_excel(pdf_path, output_excel_path):
             'Product', 'CostPerPacket', 'TotalCost', 'BarInParanthesis', 'UnitCost', 'Tentative'
         ]
         
-        print("\nDebug: Checking for missing columns:")
-        for col in column_order:
-            if col not in df.columns:
-                print(f"Missing column: {col}")
+        if log_callback:
+            log_callback("Reordering columns...")
         
         # Make sure all columns exist before reordering
         for col in column_order:
             if col not in df.columns:
+                if log_callback:
+                    log_callback(f"Adding missing column: {col}")
                 df[col] = None
         
         df = df[column_order]
         
-        print("\nDebug: Final DataFrame columns:")
-        print(df.columns.tolist())
+        if log_callback:
+            log_callback("Applying Excel formatting...")
         
         # Apply Excel formatting
         with pd.ExcelWriter(output_excel_path, engine='openpyxl') as writer:
@@ -605,6 +615,8 @@ def invoice_pdf_to_excel(pdf_path, output_excel_path):
                     cell.number_format = '#,##0.00'
             
             # Auto-adjust column widths
+            if log_callback:
+                log_callback("Adjusting column widths...")
             for column in worksheet.columns:
                 max_length = 0
                 column = [cell for cell in column]
@@ -617,10 +629,12 @@ def invoice_pdf_to_excel(pdf_path, output_excel_path):
                 adjusted_width = (max_length + 2)
                 worksheet.column_dimensions[column[0].column_letter].width = adjusted_width
 
-        print(f"\nData successfully exported to {output_excel_path}")
-        print(f"Number of records processed: {len(df)}")
+        if log_callback:
+            log_callback(f"Data successfully exported to {output_excel_path}")
+            log_callback(f"Number of records processed: {len(df)}")
     else:
-        print("No invoice data could be extracted from the PDF.")
+        if log_callback:
+            log_callback("No invoice data could be extracted from the PDF.")
 
 # Create the main GUI window
 def create_gui():
@@ -643,7 +657,7 @@ def create_gui():
     def select_save_location():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_path = filedialog.asksaveasfilename(
-            title="Save Excel File",
+            title="Save Excel As",
             defaultextension=".xlsx",
             initialfile=f"invoice_data_{timestamp}.xlsx",
             filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
@@ -651,6 +665,11 @@ def create_gui():
         if file_path:
             output_entry.delete(0, tk.END)
             output_entry.insert(0, file_path)
+    
+    def log_message(message):
+        log_text.insert(tk.END, message + "\n")
+        log_text.see(tk.END)  # Scroll to the end
+        root.update_idletasks()  # Update the UI
     
     def process_file():
         input_path = input_entry.get()
@@ -662,39 +681,39 @@ def create_gui():
             
         try:
             # Update status and disable process button
-            status_label.config(text="Processing...", fg="blue")
+            status_label.config(text="Processing...", foreground="blue")
             process_button.config(state="disabled")
-            progress_bar.start()
+            log_text.delete(1.0, tk.END)  # Clear previous logs
+            log_message("Starting PDF processing...")
             
             # Make sure you have Tesseract OCR installed and in your PATH
             pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
             
-            # Process the file
-            invoice_pdf_to_excel(input_path, output_path)
+            # Process the file with logging callback
+            invoice_pdf_to_excel(input_path, output_path, log_callback=log_message)
             
             # Update status and re-enable process button
-            status_label.config(text="File processed successfully!", fg="green")
+            status_label.config(text="File processed successfully!", foreground="green")
             process_button.config(state="normal")
-            progress_bar.stop()
             
             messagebox.showinfo("Success", f"File processed successfully!\nSaved to: {output_path}")
         except Exception as e:
             # Update status and re-enable process button
-            status_label.config(text="Error occurred!", fg="red")
+            status_label.config(text="Error occurred!", foreground="red")
             process_button.config(state="normal")
-            progress_bar.stop()
+            log_message(f"Error: {str(e)}")
             
             messagebox.showerror("Error", f"An error occurred:\n{str(e)}")
     
     # Create main window
     root = tk.Tk()
     root.title("Invoice PDF to Excel Converter")
-    root.geometry("800x400")
-    root.minsize(800, 400)  # Set minimum window size
+    root.geometry("800x600")  # Increased height for log section
+    root.minsize(800, 600)  # Set minimum window size
     
     # Configure style
     style = ttk.Style()
-    style.configure("TButton", padding=6, relief="flat", background="#2196F3")
+    style.configure("TButton", padding=6, relief="flat")
     style.configure("TLabel", padding=6)
     style.configure("TEntry", padding=6)
     
@@ -729,13 +748,26 @@ def create_gui():
     process_button = ttk.Button(main_frame, text="Process PDF", command=process_file, width=20)
     process_button.grid(row=3, column=1, pady=20)
     
-    # Progress bar
-    progress_bar = ttk.Progressbar(main_frame, mode='indeterminate', length=300)
-    progress_bar.grid(row=4, column=0, columnspan=3, pady=10)
-    
     # Status label
-    status_label = ttk.Label(main_frame, text="Ready to process files...", fg="gray")
-    status_label.grid(row=5, column=0, columnspan=3)
+    status_label = ttk.Label(main_frame, text="Ready to process files...", foreground="gray")
+    status_label.grid(row=4, column=0, columnspan=3)
+    
+    # Log section
+    log_frame = ttk.LabelFrame(main_frame, text="Processing Log", padding="10")
+    log_frame.grid(row=5, column=0, columnspan=3, sticky="nsew", pady=10)
+    
+    # Create text widget for logs with scrollbar
+    log_text = tk.Text(log_frame, height=10, width=80, wrap=tk.WORD)
+    log_scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=log_text.yview)
+    log_text.configure(yscrollcommand=log_scrollbar.set)
+    
+    # Grid the log widgets
+    log_text.grid(row=0, column=0, sticky="nsew")
+    log_scrollbar.grid(row=0, column=1, sticky="ns")
+    
+    # Configure log frame grid
+    log_frame.grid_columnconfigure(0, weight=1)
+    log_frame.grid_rowconfigure(0, weight=1)
     
     # Add tooltips
     def create_tooltip(widget, text):
