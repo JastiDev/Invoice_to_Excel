@@ -1,1 +1,6 @@
 .qodo
+./build
+/build
+/dist
+./dist
+./venv
