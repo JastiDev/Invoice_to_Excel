@@ -1,107 +1,142 @@
-# Invoice PDF to Excel Converter
+# Invoice to Excel Converter
 
-A Python application that converts PDF invoices into structured Excel spreadsheets using OCR technology. The application features a user-friendly GUI interface and supports both text-based and scanned PDF invoices.
+A Python application that converts PDF invoices to Excel format, with support for both text-based and scanned PDFs. The application includes OCR capabilities for processing scanned documents and features a modern GUI interface with real-time processing logs.
 
 ## Features
 
-- **PDF Text Extraction**: Supports both native text-based PDFs and scanned documents
-- **Advanced OCR Processing**:
-  - Uses Tesseract OCR with optimized settings
-  - Advanced image preprocessing:
-    - Adaptive thresholding
-    - Noise reduction
-    - Contrast enhancement
-    - Sharpness enhancement
-  - Character whitelist for improved accuracy
-- **Smart Data Parsing**: Extracts key invoice information including:
-  - Purchase quantities
-  - Product codes
-  - Brand names
+- Converts PDF invoices to Excel format
+- Supports both text-based and scanned PDFs using OCR
+- Smart data extraction with OCR error correction:
+  - Handles common OCR mistakes in numbers and text
+  - Corrects product codes automatically
+  - Normalizes unit measurements (oz, lb, pc)
+- Extracts key information including:
+  - Purchase and received quantities
+  - Product codes (CAS/PK/BAG)
+  - Brand information
   - Product descriptions
   - Cost per packet
   - Total cost
   - Unit cost calculations
-- **Excel Output**:
-  - Automatically formatted Excel spreadsheets
-  - Currency formatting for cost columns
-  - Auto-adjusted column widths
-  - Timestamp-based file naming
-- **User-Friendly GUI**:
-  - Simple file selection interface
-  - Progress feedback
-  - Error handling and notifications
+- Modern GUI interface with:
+  - Real-time processing logs
+  - File selection dialogs
+  - Progress tracking
+  - Error handling
+- Automatic Excel formatting with currency formatting
 
-## Requirements
+## Prerequisites
 
-- Python 3.x
-- Required Python packages:
-  - pandas
-  - pdfplumber
-  - pytesseract
-  - Pillow (PIL)
-  - opencv-python
-  - numpy
-  - openpyxl
-- Tesseract OCR engine installed on your system
-  - Windows: Install from [Tesseract GitHub Releases](https://github.com/UB-Mannheim/tesseract/wiki)
-  - Default path: `C:\Program Files\Tesseract-OCR\tesseract.exe`
+### For Users (Running the EXE)
+
+1. Windows Operating System
+2. [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) installed (minimum version 5.0.0)
+   - Install to the default location: `C:\Program Files\Tesseract-OCR`
+   - Add Tesseract to your system PATH
+   - Verify installation by running `tesseract --version` in command prompt
+
+### For Developers (Running from Source)
+
+1. Python 3.x
+2. Required Python packages (install using `pip install -r requirements.txt`):
+   - pandas (>=2.2.3): Data manipulation and Excel export
+   - pdfplumber (>=0.11.6): PDF text extraction
+   - pytesseract (>=0.3.13): OCR processing
+   - Pillow (>=11.2.1): Image processing
+   - openpyxl (>=3.1.5): Excel file creation
+   - python-dateutil (>=2.9.0): Date handling
+   - pyinstaller (>=6.13.0): For creating executable
 
 ## Installation
 
-1. Clone this repository or download the source code
-2. Install required Python packages:
+### Option 1: Running the Executable
 
-```bash
-pip install pandas pdfplumber pytesseract Pillow opencv-python numpy openpyxl
-```
+1. Download `Invoice_to_Excel.exe` from the `dist` folder
+2. Install Tesseract OCR:
+   - Download from [Tesseract GitHub Releases](https://github.com/UB-Mannheim/tesseract/wiki)
+   - Run installer and choose default location
+   - Add to system PATH during installation
+3. Double-click the executable to run
 
-3. Install Tesseract OCR engine for your operating system
-4. Ensure Tesseract is added to your system PATH
+### Option 2: Running from Source
+
+1. Clone this repository
+2. Install Python 3.x
+3. Install Tesseract OCR as described above
+4. Install required packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
+5. Run the application:
+   ```bash
+   python main.py
+   ```
 
 ## Usage
 
-1. Run the application:
+1. Launch the application
+2. Click "Browse..." to select your PDF invoice
+3. Choose where to save the Excel output file
+4. Click "Process PDF" to start the conversion
+5. Monitor progress in the log window
+6. Excel file will be created with formatted data
 
-```bash
-python main.py
-```
-
-2. Using the GUI:
-   - Click "Browse..." to select your input PDF invoice
-   - Choose a save location for the Excel output file
-   - Click "Process PDF" to start the conversion
-   - Wait for the success message
-
-## Output Format
+## Excel Output Format
 
 The generated Excel file will contain the following columns:
 
-- Purchased
-- Received
-- Code1 (CAS/PK/BAG)
-- Code2 (Product Code)
-- Brand
-- Description
-- CostPerPacket
-- TotalCost
-- BarInParanthesis
-- UnitCost
+- Purchased: Quantity purchased
+- Received: Quantity received
+- Code1: Primary product code (CAS/PK/BAG)
+- Code2: Secondary product code
+- Brand: Product brand
+- Description: Product type/category
+- Product: Full product description
+- CostPerPacket: Cost per packet (currency formatted)
+- TotalCost: Total cost (currency formatted)
+- BarInParanthesis: Units per packet
+- UnitCost: Cost per unit (currency formatted)
+- Tentative: Calculated tentative price (currency formatted)
 
-## Error Handling
+## Building the Executable
 
-The application includes robust error handling for:
+To create the executable yourself:
 
-- Invalid PDF files
-- OCR processing issues
-- Data parsing errors
-- File access permissions
-- Missing Tesseract installation
+```bash
+pip install pyinstaller
+pyinstaller --onefile --windowed --icon=NONE --name="Invoice_to_Excel" main.py
+```
 
-## Notes
+The executable will be created in the `dist` directory.
 
-- The application is optimized for specific invoice formats
-- OCR accuracy may vary depending on the quality of scanned documents
-- Make sure you have appropriate permissions for input/output file locations
+## Troubleshooting
+
+1. **Tesseract Error**:
+
+   - Verify Tesseract is installed in `C:\Program Files\Tesseract-OCR`
+   - Check if Tesseract is in system PATH
+   - Run `tesseract --version` to verify installation
+
+2. **PDF Not Reading**:
+
+   - Ensure the PDF is not password protected
+   - Check if the PDF is readable (try opening in a PDF viewer)
+   - For scanned PDFs, ensure good image quality
+
+3. **Excel File Issues**:
+
+   - Check if the output Excel file is not already open
+   - Verify you have write permissions in the output directory
+   - Ensure enough disk space is available
+
+4. **OCR Quality Issues**:
+   - Ensure PDF scan quality is good
+   - Check if the PDF is properly oriented
+   - Verify Tesseract installation is complete with all language packs
+
+## Support
+
+For issues and feature requests, please create an issue in the repository.
 
 ## License
 
