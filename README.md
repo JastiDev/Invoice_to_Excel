@@ -138,6 +138,9 @@ The executable will be created in the `dist` directory.
 
 For issues and feature requests, please create an issue in the repository.
 
+## Contact
+
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
