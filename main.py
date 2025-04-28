@@ -13,24 +13,13 @@ from tkinter import ttk
 # Function to extract text from PDF (works for both text-based and scanned PDFs)
 def extract_text_from_pdf(pdf_path):
     text = ""
-    print("\n" + "="*80)
-    print("                               PDF TEXT EXTRACTION                             ")
-    print("="*80)
-    print(f"Processing PDF file: {pdf_path}")
-    
     with pdfplumber.open(pdf_path) as pdf:
-        print(f"\nTotal pages in PDF: {len(pdf.pages)}")
         for page_num, page in enumerate(pdf.pages, 1):
-            print(f"\nProcessing page {page_num}/{len(pdf.pages)}:")
-            print("-"*40)
-            
             # Try to extract text directly (works for text-based PDFs)
             page_text = page.extract_text()
             if page_text:
-                print(f"✓ Successfully extracted text directly from page {page_num}")
                 text += f"\n=== Page {page_num} ===\n" + page_text + "\n"
             else:
-                print(f"! No direct text found on page {page_num}, attempting OCR...")
                 # If no text found, it's likely a scanned PDF - use OCR
                 img = page.to_image(resolution=300).original
                 # Convert to grayscale and enhance contrast
@@ -41,29 +30,7 @@ def extract_text_from_pdf(pdf_path):
                 # Configure OCR for better recognition
                 custom_config = '--oem 3 --psm 6'
                 page_text = pytesseract.image_to_string(Image.open(io.BytesIO(img_byte_arr)), config=custom_config)
-                print(f"✓ OCR processing completed for page {page_num}")
                 text += f"\n=== Page {page_num} (OCR) ===\n" + page_text + "\n"
-    
-    print("\n" + "="*80)
-    print("                               EXTRACTED TEXT                                  ")
-    print("="*80)
-    
-    # Split text into lines and print with line numbers
-    lines = text.split('\n')
-    non_empty_lines = [line for line in lines if line.strip()]
-    print(f"Total non-empty lines extracted: {len(non_empty_lines)}")
-    print("-"*80)
-    
-    for i, line in enumerate(lines, 1):
-        if line.strip():  # Only print non-empty lines
-            if line.startswith('=== Page'):
-                print(f"\n{line}")
-            else:
-                print(f"Line {i:3d}: {line}")
-    
-    print("\n" + "-"*80)
-    print("                              END OF EXTRACTED TEXT                           ")
-    print("="*80 + "\n")
     return text
 
 # Function to clean OCR text
@@ -250,7 +217,6 @@ def parse_invoice_text(text):
                 purchased = 1
                 received = 1
                 purchased_idx = 0
-                print(f"Found pattern for 1 and 1 in: {first_three}")
             # Check for ES) pattern
             elif parts and ('ES)' in parts[0] or (len(parts) > 1 and 'ES)' in parts[1])):
                 purchased = 5
@@ -293,7 +259,6 @@ def parse_invoice_text(text):
                     received = purchased  # Default received to purchased if not found
             
             if purchased is None:
-                print(f"Could not find valid purchased quantity in line: {original_line}")
                 continue
             
             # Get the product code (Code2)
@@ -375,7 +340,6 @@ def parse_invoice_text(text):
                 if code2.startswith('HEM'):
                     cost_per_packet = 27.72
                 else:
-                    print(f"Could not find valid cost numbers in line: {original_line}")
                     continue
             
             # Find all decimal numbers in the line
@@ -449,7 +413,6 @@ def parse_invoice_text(text):
                 try:
                     bar = int(parentheses_match.group(1))
                 except ValueError:
-                    print(f"Warning: Could not convert parentheses content to number: {parentheses_match.group(1)}")
                     bar = 0
             
             # Split the text at cost numbers for description
@@ -540,13 +503,9 @@ def parse_invoice_text(text):
                 'UnitCost': round(cost_per_packet / bar, 2) if bar > 0 else None
             }
             
-            print(f"Match found for line: {original_line}")
-            print(f"Extracted item: {item}\n")
             items.append(item)
             
         except (ValueError, IndexError) as e:
-            print(f"Error processing line: {original_line}")
-            print(f"Error: {str(e)}\n")
             continue
     
     return items
@@ -555,12 +514,12 @@ def parse_invoice_text(text):
 def invoice_pdf_to_excel(pdf_path, output_excel_path, log_callback=None):
     # Step 1: Extract text from PDF
     if log_callback:
-        log_callback("Step 1: Extracting text from PDF...")
+        log_callback("Extracting text from PDF...")
     text = extract_text_from_pdf(pdf_path)
     
     # Step 2: Parse the text to extract structured data
     if log_callback:
-        log_callback("Step 2: Parsing extracted text...")
+        log_callback("Parsing extracted text...")
     invoice_items = parse_invoice_text(text)
     
     # Step 3: Create DataFrame and export to Excel
@@ -570,13 +529,7 @@ def invoice_pdf_to_excel(pdf_path, output_excel_path, log_callback=None):
         
         df = pd.DataFrame(invoice_items)
         
-        if log_callback:
-            log_callback("Creating DataFrame with columns:")
-            log_callback(str(df.columns.tolist()))
-        
         # Calculate Tentative column
-        if log_callback:
-            log_callback("Calculating Tentative column...")
         df['Tentative'] = df.apply(lambda row: round((row['CostPerPacket'] / row['BarInParanthesis'] * 1.7), 2) if row['BarInParanthesis'] > 0 else None, axis=1)
         
         # Reorder columns to match the image format
@@ -585,14 +538,9 @@ def invoice_pdf_to_excel(pdf_path, output_excel_path, log_callback=None):
             'Product', 'CostPerPacket', 'TotalCost', 'BarInParanthesis', 'UnitCost', 'Tentative'
         ]
         
-        if log_callback:
-            log_callback("Reordering columns...")
-        
         # Make sure all columns exist before reordering
         for col in column_order:
             if col not in df.columns:
-                if log_callback:
-                    log_callback(f"Adding missing column: {col}")
                 df[col] = None
         
         df = df[column_order]
@@ -615,8 +563,6 @@ def invoice_pdf_to_excel(pdf_path, output_excel_path, log_callback=None):
                     cell.number_format = '#,##0.00'
             
             # Auto-adjust column widths
-            if log_callback:
-                log_callback("Adjusting column widths...")
             for column in worksheet.columns:
                 max_length = 0
                 column = [cell for cell in column]
