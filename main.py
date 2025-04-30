@@ -235,7 +235,7 @@ def parse_invoice_text(text):
                         if i + 1 < len(parts):
                             next_num = convert_to_number(parts[i + 1])
                             if next_num == num:  # If next number matches current
-                                received = int(next_num)
+                                received = int(num)  # Use num instead of next_num since they're equal
                         break
                     # If conversion failed, check for known patterns
                     elif any(ind in parts[i] for ind in ONE_INDICATORS):
@@ -530,7 +530,12 @@ def invoice_pdf_to_excel(pdf_path, output_excel_path, log_callback=None):
         df = pd.DataFrame(invoice_items)
         
         # Calculate Tentative column
-        df['Tentative'] = df.apply(lambda row: round((row['CostPerPacket'] / row['BarInParanthesis'] * 1.7), 2) if row['BarInParanthesis'] > 0 else None, axis=1)
+        df['Tentative'] = df.apply(
+            lambda row: round((row['CostPerPacket'] / row['BarInParanthesis'] * 1.7), 2) 
+            if row['BarInParanthesis'] > 0 
+            else pd.NA, 
+            axis=1
+        )
         
         # Reorder columns to match the image format
         column_order = [
