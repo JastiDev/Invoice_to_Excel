@@ -24,6 +24,28 @@ A Python application that converts PDF invoices to Excel format, with support fo
   - Progress tracking
   - Error handling
 - Automatic Excel formatting with currency formatting
+- Modular architecture for maintainability and extensibility
+
+## Project Structure
+
+The codebase is organized into modules, each with specific responsibilities:
+
+```
+Invoice_to_Excel/
+├── main.py                  # Entry point for the application
+├── src/                     # Source code directory
+│   ├── converter.py         # Main converter logic that ties modules together
+│   ├── pdf_extraction/      # PDF text extraction module
+│   │   └── extractor.py     # Functions for extracting text from PDFs
+│   ├── text_processing/     # Text processing module
+│   │   └── processor.py     # Functions for cleaning and parsing invoice text
+│   ├── excel_output/        # Excel export module
+│   │   └── export.py        # Functions for formatting and exporting to Excel
+│   └── gui/                 # GUI module
+│       └── app.py           # User interface implementation
+├── requirements.txt         # Project dependencies
+└── README.md                # This file
+```
 
 ## Prerequisites
 
@@ -98,6 +120,45 @@ The generated Excel file will contain the following columns:
 - UnitCost: Cost per unit (currency formatted)
 - Tentative: Calculated tentative price (currency formatted)
 
+## Development
+
+### Module Descriptions
+
+1. **PDF Extraction Module** (`src/pdf_extraction/extractor.py`):
+
+   - Extracts text from PDF files
+   - Uses pdfplumber for text-based PDFs
+   - Uses pytesseract OCR for scanned PDFs
+
+2. **Text Processing Module** (`src/text_processing/processor.py`):
+
+   - Cleans and parses OCR text
+   - Handles detection of invoice items, quantities, codes, prices
+   - Contains OCR error correction logic
+
+3. **Excel Output Module** (`src/excel_output/export.py`):
+
+   - Formats and exports data to Excel
+   - Applies proper column formatting and width adjustments
+
+4. **GUI Module** (`src/gui/app.py`):
+
+   - Implements the user interface
+   - Provides file selection, processing status, and log display
+
+5. **Converter Module** (`src/converter.py`):
+   - Ties all components together
+   - Orchestrates the conversion process
+
+### Extending the Application
+
+To add new features:
+
+1. Identify which module should contain the functionality
+2. Implement your feature in the appropriate module
+3. Update the converter module if needed to integrate your changes
+4. Test thoroughly
+
 ## Building the Executable
 
 To create the executable yourself:
@@ -137,9 +198,6 @@ The executable will be created in the `dist` directory.
 ## Support
 
 For issues and feature requests, please create an issue in the repository.
-
-## Contact
-
 
 ## License
 
